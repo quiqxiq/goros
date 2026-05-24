@@ -23,6 +23,7 @@ type ListenReply struct {
 	chanReply
 	Done *proto.Sentence
 	c    *Client
+	stop chan struct{}
 }
 
 // Chan returns a channel for receiving !re RouterOS sentences.
@@ -71,7 +72,7 @@ func (c *Client) ListenArgsQueueContext(ctx context.Context, sentence []string, 
 	c.logger().Debug("ListenArgsQueueContext", slog.Any("sentences", sentence))
 
 	if !c.IsAsync() {
-		c.AsyncContext(ctx)
+		c.Async()
 	}
 
 	tag := c.incrementTag()
@@ -102,11 +103,17 @@ func (c *Client) ListenArgsQueueContext(ctx context.Context, sentence []string, 
 
 	c.tags[l.tag] = l
 
-	go func() {
-		<-ctx.Done()
-
-		c.r.Cancel()
-	}()
+	if ctx != context.Background() {
+		stop := make(chan struct{})
+		l.stop = stop
+		go func() {
+			select {
+			case <-ctx.Done():
+				c.cancelTag(l.tag)
+			case <-stop:
+			}
+		}()
+	}
 
 	return l, nil
 }
@@ -117,19 +124,30 @@ func (l *ListenReply) processSentence(sen *proto.Sentence) (bool, error) {
 		l.reC <- sen
 	case doneSentence:
 		l.Done = sen
+		l.closeStop()
 		return true, nil
 	case trapSentence:
 		if sen.Map["category"] == "2" {
 			l.Done = sen // "execution of command interrupted"
+			l.closeStop()
 			return true, nil
 		}
+		l.closeStop()
 		return true, &DeviceError{sen}
 	case fatalSentence:
+		l.closeStop()
 		return true, &DeviceError{sen}
 	case "", emptySentence:
 		// API docs say that empty sentences should be ignored
 	default:
+		l.closeStop()
 		return true, &UnknownReplyError{sen}
 	}
 	return false, nil
+}
+
+func (l *ListenReply) closeStop() {
+	if l.stop != nil {
+		close(l.stop)
+	}
 }

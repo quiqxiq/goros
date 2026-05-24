@@ -49,26 +49,31 @@ func (c *Client) RunArgsContext(ctx context.Context, sentences []string) (*Reply
 	a.tag = fmt.Sprintf("r%d", tag)
 	c.w.WriteWord(".tag=" + a.tag)
 	c.logger().Debug("set tag", slog.String("tag", a.tag))
-	if err := c.w.EndSentence(); err != nil {
-		return nil, err
-	}
 
 	c.mu.Lock()
 	if c.tags == nil {
 		c.mu.Unlock()
-
 		return nil, errAsyncLoopEnded
 	}
-
 	c.tags[a.tag] = a
+	if err := c.w.EndSentence(); err != nil {
+		delete(c.tags, a.tag)
+		c.mu.Unlock()
+		return nil, err
+	}
 	c.mu.Unlock()
 
 	// wait for asyncLoop to close channel or context done
 	for {
 		select {
 		case <-ctx.Done():
-			c.r.Cancel()
-
+			c.cancelTag(a.tag)
+			// Wait for asyncLoop to close the channel after RouterOS responds
+			for range a.reC {
+			}
+			if a.err != nil {
+				return nil, a.err
+			}
 			return nil, ctx.Err()
 		case _, ok := <-a.reC:
 			if !ok { // channel closed

@@ -1,6 +1,7 @@
 package routeros
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"io"
@@ -357,14 +358,16 @@ func TestListen(t *testing.T) {
 	c, s := newPair(t)
 	defer deferCloser(t, c)
 
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		defer deferCloser(t, s)
 		s.readSentence(t, "/ip/address/listen @l1 []")
 		s.writeSentence(t, "!re", ".tag=l1", "=address=1.2.3.4/32")
 		s.readSentence(t, "/cancel @r2 [{`tag` `l1`}]")
 		s.writeSentence(t, "!trap", "=category=2", ".tag=l1")
-		s.writeSentence(t, "!done", "=tag=r2")
-		s.writeSentence(t, "!done", "=tag=l1")
+		s.writeSentence(t, "!done", ".tag=r2")
+		s.writeSentence(t, "!done", ".tag=l1")
 	}()
 
 	c.Queue = 1
@@ -374,7 +377,7 @@ func TestListen(t *testing.T) {
 	reC := listen.Chan()
 
 	_, err = listen.Cancel()
-	require.Equal(t, err, io.EOF)
+	require.NoError(t, err)
 
 	sen := <-reC
 	want := "!re @l1 [{`address` `1.2.3.4/32`}]"
@@ -383,6 +386,7 @@ func TestListen(t *testing.T) {
 	sen = <-reC
 	require.Nilf(t, sen, "Listen() channel should be closed after Close(); got %#q", sen)
 	require.NoError(t, listen.Err())
+	<-done
 }
 
 type conn struct {
@@ -433,4 +437,101 @@ func (f *fakeServer) writeSentence(t *testing.T, sentence ...string) {
 	}
 
 	require.NoError(t, f.w.EndSentence())
+}
+
+func TestCancelOneStreamDoesNotKillOthers(t *testing.T) {
+	c, s := newPair(t)
+	defer deferCloser(t, c)
+
+	go func() {
+		defer deferCloser(t, s)
+		// Listen command - tag l1
+		s.readSentence(t, "/ip/address/listen @l1 []")
+		// Cancel via listen.Cancel() uses Run which gets tag r2
+		s.readSentence(t, "/cancel @r2 [{`tag` `l1`}]")
+		// RouterOS responds: trap for listener, done for cancel, done for listener
+		s.writeSentence(t, "!trap", "=category=2", ".tag=l1")
+		s.writeSentence(t, "!done", ".tag=r2")
+		s.writeSentence(t, "!done", ".tag=l1")
+		// Run command gets tag r3
+		s.readSentence(t, "/system/resource/print @r3 []")
+		s.writeSentence(t, "!re", ".tag=r3", "=uptime=1d")
+		s.writeSentence(t, "!done", ".tag=r3")
+	}()
+
+	c.Async()
+
+	// Start a listener
+	listen, err := c.Listen("/ip/address/listen")
+	require.NoError(t, err)
+
+	// Cancel the listener - should NOT kill other streams
+	_, err = listen.Cancel()
+	require.NoError(t, err)
+
+	// Drain listener channel
+	for range listen.Chan() {
+	}
+	require.NoError(t, listen.Err())
+
+	// Start a run AFTER cancel - it should still work
+	r, err := c.Run("/system/resource/print")
+	require.NoError(t, err)
+	require.NotEmpty(t, r.Re, "expected Re sentences")
+	require.Equal(t, "1d", r.Re[0].Map["uptime"])
+}
+
+func TestRunContextCancelDoesNotKillOtherStreams(t *testing.T) {
+	c, s := newPair(t)
+	defer deferCloser(t, c)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	firstRead := make(chan struct{})
+	secondRead := make(chan struct{})
+
+	go func() {
+		defer deferCloser(t, s)
+		s.readSentence(t, "/tool/ping @r1 []")
+		close(firstRead)
+		s.readSentence(t, "/system/resource/print @r2 []")
+		close(secondRead)
+		s.readSentence(t, "/cancel @c3 [{`tag` `r1`}]")
+		s.writeSentence(t, "!trap", "=category=2", "=message=interrupted", ".tag=r1")
+		s.writeSentence(t, "!done", ".tag=c3")
+		s.writeSentence(t, "!done", ".tag=r1")
+		s.writeSentence(t, "!re", ".tag=r2", "=uptime=2d")
+		s.writeSentence(t, "!done", ".tag=r2")
+	}()
+
+	c.Async()
+
+	type runResult struct {
+		reply *Reply
+		err   error
+	}
+
+	run1Ch := make(chan runResult, 1)
+	go func() {
+		r, e := c.RunContext(ctx, "/tool/ping")
+		run1Ch <- runResult{r, e}
+	}()
+
+	<-firstRead
+
+	run2Ch := make(chan runResult, 1)
+	go func() {
+		r, e := c.Run("/system/resource/print")
+		run2Ch <- runResult{r, e}
+	}()
+
+	<-secondRead
+	cancel()
+
+	res1 := <-run1Ch
+	require.Error(t, res1.err)
+
+	res2 := <-run2Ch
+	require.NoError(t, res2.err)
+	require.Equal(t, "2d", res2.reply.Re[0].Map["uptime"])
 }
