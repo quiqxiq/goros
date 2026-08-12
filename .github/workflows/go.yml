@@ -5,9 +5,13 @@ name: Go
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master", "main" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "master", "main" ]
+  # Job integration dijalankan manual/terjadwal (device lab tidak selalu online)
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * 0'  # Minggu 02:00 UTC
 
 jobs:
   lint:
@@ -43,7 +47,7 @@ jobs:
     name: build
     runs-on: ubuntu-latest
     needs: lint
-    strategy: { matrix: { go: [ '1.21.x', '1.22.x'] } }
+    strategy: { matrix: { go: [ '1.22.x', '1.23.x'] } }
     steps:
     - name: Setup go
       uses: actions/setup-go@v4
@@ -73,4 +77,39 @@ jobs:
 
     - name: Build tab example
       run: go build -v ./examples/tab/
+  # Integration test ke device RouterOS nyata (build tag `integration`, D-009).
+  # Kredensial hanya dari secrets; manual/terjadwal agar pipeline utama tidak
+  # gagal saat lab offline.
+  integration:
+    name: integration
+    runs-on: ubuntu-latest
+    needs: build
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    env:
+      ROUTEROS_TEST_ADDRESS: ${{ secrets.ROUTEROS_TEST_ADDRESS }}
+      ROUTEROS_TEST_USERNAME: ${{ secrets.ROUTEROS_TEST_USERNAME }}
+      ROUTEROS_TEST_PASSWORD: ${{ secrets.ROUTEROS_TEST_PASSWORD }}
+      ROUTEROS_TEST_SSH_ADDRESS: ${{ secrets.ROUTEROS_TEST_SSH_ADDRESS }}
+      ROUTEROS_TEST_SSH_USERNAME: ${{ secrets.ROUTEROS_TEST_SSH_USERNAME }}
+      ROUTEROS_TEST_SSH_PASSWORD: ${{ secrets.ROUTEROS_TEST_SSH_PASSWORD }}
+    steps:
+    - name: Setup go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22.x'
+
+    - name: Check out code
+      uses: actions/checkout@v4
+      with: { fetch-depth: 0 }
+
+    - name: Cache go mod
+      uses: actions/cache@v4
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-
+
+    - name: Integration test (native-api + ssh + gate)
+      run: go test -tags integration -count=1 -timeout 300s ./transport/nativeapi/ ./transport/ssh/ ./gate/ .
 
