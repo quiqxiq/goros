@@ -5,7 +5,12 @@ Go library for accessing Mikrotik devices using the RouterOS API.
 Look in the examples directory to learn how to use this library:
 [run](examples/run/main.go),
 [listen](examples/listen/main.go),
-[tab](examples/tab/main.go).
+[tab](examples/tab/main.go),
+[multi_listen](examples/multi_listen/main.go).
+
+Panduan penggunaan lengkap (cara pakai + contoh terverifikasi di device
+RouterOS v6 & v7 asli, termasuk multi-connection dan perilaku banyak
+listener): [docs/USAGE.md](docs/USAGE.md).
 
 API documentation is available at [pkg.go.dev](https://pkg.go.dev/github.com/quiqxiq/goros/v4).  
 Page on the [Mikrotik Wiki](http://wiki.mikrotik.com/wiki/API_in_Go).
