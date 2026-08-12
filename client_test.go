@@ -190,10 +190,33 @@ func TestInvalidLogin(t *testing.T) {
 
 func TestTrapHandling(tt *testing.T) {
 	t := newLiveTest(tt)
-	defer deferCloser(tt, t.c)
 
 	cmd := []string{"/ip/dns/static/add", "=type=A", "=name=example.com", "=ttl=30", "=address=1.0.0.0"}
 
+	// Cleanups are registered BEFORE the mutating calls so they fire even if an
+	// assertion below fails (no leaked entry / connection on failure). Go runs
+	// Cleanup callbacks LIFO after the test body: Close (registered first) runs
+	// last, DNS removal (registered second) runs first with the connection
+	// alive. The .id is looked up by the exact name+address this test uses, so
+	// only entries matching the test's own artifact (including leftovers from
+	// crashed runs) are removed.
+	tt.Cleanup(func() { _ = t.c.Close() })
+	tt.Cleanup(func() {
+		r, err := t.c.RunArgs([]string{"/ip/dns/static/print", "?name=example.com", "?address=1.0.0.0"})
+		if err != nil {
+			tt.Logf("cleanup lookup: %v", err)
+			return
+		}
+		for _, re := range r.Re {
+			if id := re.Map[".id"]; id != "" {
+				if _, err := t.c.RunArgs([]string{"/ip/dns/static/remove", "=.id=" + id}); err != nil {
+					tt.Logf("cleanup remove %s: %v", id, err)
+				}
+			}
+		}
+	})
+
+	// The first add creates the entry; the second must fail as a duplicate.
 	_, _ = t.c.RunArgs(cmd)
 	_, err := t.c.RunArgs(cmd)
 	require.Error(tt, err, "should've returned an error due to a duplicate")
