@@ -3,7 +3,7 @@ package routeros
 import (
 	"fmt"
 
-	"github.com/go-routeros/routeros/v3/proto"
+	"github.com/quiqxiq/goros/v4/proto"
 )
 
 // cancelTag sends "/cancel =tag=<target>" to RouterOS directly on the wire.

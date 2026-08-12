@@ -18,7 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/go-routeros/routeros/v3/proto"
+	"github.com/quiqxiq/goros/v4/proto"
 )
 
 // Client is a RouterOS API client.
@@ -37,6 +37,10 @@ type Client struct {
 
 	r proto.Reader
 	w proto.Writer
+
+	// run holds the Fase 6 orchestrator state (session capability probes
+	// and the lazily built gate/schema pipeline); see client_transport.go.
+	run *runState
 }
 
 var (
@@ -55,8 +59,9 @@ func NewClient(rwc io.ReadWriteCloser) (*Client, error) {
 		rwc: rwc,
 		log: slog.New(defaultHandler),
 
-		r: proto.NewReader(rwc),
-		w: proto.NewWriter(rwc),
+		r:   proto.NewReader(rwc),
+		w:   proto.NewWriter(rwc),
+		run: &runState{},
 	}, nil
 }
 

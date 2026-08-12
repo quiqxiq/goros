@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/go-routeros/routeros/v3/proto"
+	"github.com/quiqxiq/goros/v4/proto"
 )
 
 var (

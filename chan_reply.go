@@ -1,7 +1,7 @@
 package routeros
 
 import (
-	"github.com/go-routeros/routeros/v3/proto"
+	"github.com/quiqxiq/goros/v4/proto"
 )
 
 // chanReply is shared between ListenReply and AsyncReply.

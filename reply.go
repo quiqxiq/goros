@@ -3,7 +3,7 @@ package routeros
 import (
 	"strings"
 
-	"github.com/go-routeros/routeros/v3/proto"
+	"github.com/quiqxiq/goros/v4/proto"
 )
 
 // Reply has all the sentences from a reply.
