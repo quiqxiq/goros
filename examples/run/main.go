@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/go-routeros/routeros/v3"
+	"github.com/quiqxiq/goros/v4"
 )
 
 var (

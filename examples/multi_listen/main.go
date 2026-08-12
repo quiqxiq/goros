@@ -11,13 +11,13 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/go-routeros/routeros/v3"
+	"github.com/quiqxiq/goros/v4"
 )
 
 var (
-	address  = flag.String("address", "192.168.230.2:8728", "RouterOS address and port")
+	address  = flag.String("address", "192.168.88.1:8728", "RouterOS address and port")
 	username = flag.String("username", "admin", "User name")
-	password = flag.String("password", "r00t", "Password")
+	password = flag.String("password", "admin", "Password")
 )
 
 func main() {
